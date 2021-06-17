@@ -1,4 +1,4 @@
-package go_utils_test
+package pubsubtools_test
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"github.com/rs/xid"
-	base "github.com/savannahghi/go_utils"
+	base "github.com/savannahghi/pubsubtools"
 	"github.com/savannahghi/server_utils"
 	"github.com/segmentio/ksuid"
 	"google.golang.org/api/idtoken"
