@@ -13,7 +13,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"github.com/savannahghi/converterandformatter"
-	"github.com/savannahghi/server_utils"
+	"github.com/savannahghi/serverutils"
 	"google.golang.org/api/idtoken"
 	"google.golang.org/api/iterator"
 )
@@ -362,7 +362,7 @@ func PublishToPubsub(
 // GetServiceAccountEmail inspects the environment to get the project number
 // and uses that to compose an email to use as a Google Cloud pub-sub email
 func GetServiceAccountEmail() (string, error) {
-	projectNumber, err := server_utils.GetEnvVar(GoogleProjectNumberEnvVarName)
+	projectNumber, err := serverutils.GetEnvVar(GoogleProjectNumberEnvVarName)
 	if err != nil {
 		return "", fmt.Errorf(
 			"no %s env var: %w", GoogleProjectNumberEnvVarName, err)

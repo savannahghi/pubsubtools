@@ -13,7 +13,7 @@ import (
 	"cloud.google.com/go/pubsub"
 	"github.com/rs/xid"
 	base "github.com/savannahghi/pubsubtools"
-	"github.com/savannahghi/server_utils"
+	"github.com/savannahghi/serverutils"
 	"github.com/segmentio/ksuid"
 	"google.golang.org/api/idtoken"
 )
@@ -210,7 +210,7 @@ func TestVerifyPubSubJWTAndDecodePayload(t *testing.T) {
 
 func TestEnsureTopicsExist(t *testing.T) {
 	ctx := context.Background()
-	projectID := server_utils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
@@ -272,7 +272,7 @@ func TestEnsureTopicsExist(t *testing.T) {
 
 func TestEnsureSubscriptionsExist(t *testing.T) {
 	ctx := context.Background()
-	projectID := server_utils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
@@ -365,7 +365,7 @@ func TestEnsureSubscriptionsExist(t *testing.T) {
 
 func TestGetPushSubscriptionConfig(t *testing.T) {
 	ctx := context.Background()
-	projectID := server_utils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
@@ -558,7 +558,7 @@ func TestNamespacePubsubIdentifier(t *testing.T) {
 
 func TestPublishToPubsub(t *testing.T) {
 	ctx := context.Background()
-	projectID := server_utils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
@@ -646,7 +646,7 @@ func TestPublishToPubsub(t *testing.T) {
 }
 
 func TestGetServiceAccountEmail(t *testing.T) {
-	projectNumber := server_utils.MustGetEnvVar(base.GoogleProjectNumberEnvVarName)
+	projectNumber := serverutils.MustGetEnvVar(base.GoogleProjectNumberEnvVarName)
 	expectedServiceAccountEmail := fmt.Sprintf(
 		"%s-compute@developer.gserviceaccount.com", projectNumber)
 	tests := []struct {
