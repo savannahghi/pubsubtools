@@ -1,3 +1,6 @@
+![Linting and Tests](https://github.com/savannahghi/pubsubtools/actions/workflows/ci.yml/badge.svg)
+[![Coverage Status](https://coveralls.io/repos/github/savannahghi/pubsubtools/badge.svg?branch=main)](https://coveralls.io/github/savannahghi/pubsubtools?branch=main)
+
 # PubSub Tools
 `pubsubtools` is a utils package that contains helper functions that contains Google messaging (Publisher, Subscriber) utilities. 
 
