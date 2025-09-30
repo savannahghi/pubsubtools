@@ -2,7 +2,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/savannahghi/pubsubtools/badge.svg?branch=main)](https://coveralls.io/github/savannahghi/pubsubtools?branch=main)
 
 # PubSub Tools
-`pubsubtools` is a utils package that contains helper functions that contains Google messaging (Publisher, Subscriber) utilities. 
+`pubsubtools` is a utils package that contains helper functions that contains Google messaging (Publisher, Subscriber) utilities.
 
 ### Installing it
 pubsubtools is compatible with modern Go releases in module mode, with Go installed:

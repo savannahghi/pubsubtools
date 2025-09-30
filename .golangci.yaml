@@ -1,0 +1,67 @@
+version: "2"
+run:
+  timeout: 10m
+  concurrency: 4
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bodyclose
+    - dogsled
+    - errcheck
+    - errorlint
+    - funlen
+    - gocritic
+    - goheader
+    - gosec
+    - govet
+    - importas
+    - ineffassign
+    - ireturn
+    - makezero
+    - misspell
+    - nilerr
+    - reassign
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - unparam
+    - unused
+    - wsl
+  settings:
+    funlen:
+      lines: -1
+      statements: -1
+    gosec:
+      excludes:
+        - G601
+        - G304
+        - G101
+    staticcheck:
+      checks:
+        - all
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - internal/presentation/graph/generated/
+      - internal/presentation/mocks/
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - internal/presentation/graph/generated/
+      - internal/presentation/mocks/
+      - third_party$
+      - builtin$
+      - examples$
