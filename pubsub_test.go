@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"testing"
 
-	"cloud.google.com/go/pubsub"
+	pubsub "cloud.google.com/go/pubsub/v2"
 	"github.com/rs/xid"
 	base "github.com/savannahghi/pubsubtools"
 	"github.com/savannahghi/serverutils"
@@ -22,6 +22,7 @@ func TestGetPubSubTopic(t *testing.T) {
 	type args struct {
 		m *base.PubSubPayload
 	}
+
 	tests := []struct {
 		name    string
 		args    args
@@ -65,6 +66,7 @@ func TestGetPubSubTopic(t *testing.T) {
 			wantErr: false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := base.GetPubSubTopic(tt.args.m)
@@ -74,8 +76,10 @@ func TestGetPubSubTopic(t *testing.T) {
 					err,
 					tt.wantErr,
 				)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("GetPubSubTopic() = %v, want %v", got, tt.want)
 			}
@@ -91,16 +95,19 @@ func TestVerifyPubSubJWTAndDecodePayload(t *testing.T) {
 	validHeaderReq.Header.Add("Authorization", "Bearer stuff")
 
 	ctx := context.Background()
+
 	goodIDTokenSource, err := idtoken.NewTokenSource(ctx, base.Aud)
 	if err != nil {
 		t.Errorf("can't initialize ID token source: %v", err)
 		return
 	}
+
 	goodToken, err := goodIDTokenSource.Token()
 	if err != nil {
 		t.Errorf("error getting ID token: %v", err)
 		return
 	}
+
 	goodTokenHeader := fmt.Sprintf(
 		"%s %s", goodToken.TokenType, goodToken.AccessToken)
 	testPayload := &base.PubSubPayload{
@@ -113,13 +120,14 @@ func TestVerifyPubSubJWTAndDecodePayload(t *testing.T) {
 			},
 		},
 	}
+
 	testPayloadBytes, err := json.Marshal(testPayload)
 	if err != nil {
 		t.Errorf("error marshalling test payload: %v", err)
 		return
 	}
-	goodTokenReq := httptest.NewRequest(
-		http.MethodPost, "/", bytes.NewBuffer(testPayloadBytes))
+
+	goodTokenReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(testPayloadBytes))
 	goodTokenReq.Header.Add("Authorization", goodTokenHeader)
 
 	badIssuerTokenSource, err := idtoken.NewTokenSource(ctx, "bad audience")
@@ -127,21 +135,22 @@ func TestVerifyPubSubJWTAndDecodePayload(t *testing.T) {
 		t.Errorf("can't initialize ID token source: %v", err)
 		return
 	}
+
 	badToken, err := badIssuerTokenSource.Token()
 	if err != nil {
 		t.Errorf("error getting ID token: %v", err)
 		return
 	}
-	badTokenHeader := fmt.Sprintf(
-		"%s %s", badToken.TokenType, badToken.AccessToken)
-	badTokenReq := httptest.NewRequest(
-		http.MethodPost, "/", bytes.NewBuffer(testPayloadBytes))
+
+	badTokenHeader := fmt.Sprintf("%s %s", badToken.TokenType, badToken.AccessToken)
+	badTokenReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(testPayloadBytes))
 	badTokenReq.Header.Add("Authorization", badTokenHeader)
 
 	type args struct {
 		w http.ResponseWriter
 		r *http.Request
 	}
+
 	tests := []struct {
 		name    string
 		args    args
@@ -185,6 +194,7 @@ func TestVerifyPubSubJWTAndDecodePayload(t *testing.T) {
 			wantErr: true,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := base.VerifyPubSubJWTAndDecodePayload(
@@ -195,8 +205,10 @@ func TestVerifyPubSubJWTAndDecodePayload(t *testing.T) {
 					err,
 					tt.wantErr,
 				)
+
 				return
 			}
+
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf(
 					"VerifyPubSubJWTAndDecodePayload() = %v, want %v",
@@ -211,6 +223,7 @@ func TestVerifyPubSubJWTAndDecodePayload(t *testing.T) {
 func TestEnsureTopicsExist(t *testing.T) {
 	ctx := context.Background()
 	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
@@ -222,6 +235,7 @@ func TestEnsureTopicsExist(t *testing.T) {
 		pubsubClient *pubsub.Client
 		topicIDs     []string
 	}
+
 	tests := []struct {
 		name    string
 		args    args
@@ -261,6 +275,7 @@ func TestEnsureTopicsExist(t *testing.T) {
 			wantErr: true,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := base.EnsureTopicsExist(tt.args.ctx, tt.args.pubsubClient, tt.args.topicIDs); (err != nil) != tt.wantErr {
@@ -273,6 +288,7 @@ func TestEnsureTopicsExist(t *testing.T) {
 func TestEnsureSubscriptionsExist(t *testing.T) {
 	ctx := context.Background()
 	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
@@ -291,6 +307,7 @@ func TestEnsureSubscriptionsExist(t *testing.T) {
 			version,
 		),
 	}
+
 	err = base.EnsureTopicsExist(ctx, pubsubClient, validTopics)
 	if err != nil {
 		t.Errorf("can't create topics: %v", err)
@@ -303,6 +320,7 @@ func TestEnsureSubscriptionsExist(t *testing.T) {
 		topicSubscriptionMap map[string]string
 		callbackURL          string
 	}
+
 	tests := []struct {
 		name    string
 		args    args
@@ -345,6 +363,7 @@ func TestEnsureSubscriptionsExist(t *testing.T) {
 			wantErr: false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := base.EnsureSubscriptionsExist(
@@ -366,6 +385,7 @@ func TestEnsureSubscriptionsExist(t *testing.T) {
 func TestGetPushSubscriptionConfig(t *testing.T) {
 	ctx := context.Background()
 	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
@@ -373,6 +393,7 @@ func TestGetPushSubscriptionConfig(t *testing.T) {
 	}
 
 	validTopic := "test.ci"
+
 	err = base.EnsureTopicsExist(ctx, pubsubClient, []string{validTopic})
 	if err != nil {
 		t.Errorf("can't create topic %s: %v", validTopic, err)
@@ -385,6 +406,7 @@ func TestGetPushSubscriptionConfig(t *testing.T) {
 		topicID      string
 		callbackURL  string
 	}
+
 	tests := []struct {
 		name    string
 		args    args
@@ -425,6 +447,7 @@ func TestGetPushSubscriptionConfig(t *testing.T) {
 			wantErr: false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := base.GetPushSubscriptionConfig(
@@ -439,8 +462,10 @@ func TestGetPushSubscriptionConfig(t *testing.T) {
 					err,
 					tt.wantErr,
 				)
+
 				return
 			}
+
 			if !tt.wantNil && got == nil {
 				t.Errorf("got nil pubsub push config, expected non nil")
 				return
@@ -453,6 +478,7 @@ func TestSubscriptionIDs(t *testing.T) {
 	type args struct {
 		topicIDs []string
 	}
+
 	tests := []struct {
 		name string
 		args args
@@ -482,11 +508,9 @@ func TestSubscriptionIDs(t *testing.T) {
 
 func TestReverseSubscriptionIDs(t *testing.T) {
 	type args struct {
-		topicIDs    []string
-		environment string
-		serviceName string
-		version     string
+		topicIDs []string
 	}
+
 	tests := []struct {
 		name string
 		args args
@@ -507,9 +531,6 @@ func TestReverseSubscriptionIDs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := base.ReverseSubscriptionIDs(
 				tt.args.topicIDs,
-				tt.args.environment,
-				tt.args.serviceName,
-				tt.args.version,
 			); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf(
 					"ReverseSubscriptionIDs() = %v, want %v", got, tt.want)
@@ -525,6 +546,7 @@ func TestNamespacePubsubIdentifier(t *testing.T) {
 		environment string
 		version     string
 	}
+
 	tests := []struct {
 		name string
 		args args
@@ -541,6 +563,7 @@ func TestNamespacePubsubIdentifier(t *testing.T) {
 			want: "test-test-ci-v1",
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := base.NamespacePubsubIdentifier(
@@ -559,11 +582,13 @@ func TestNamespacePubsubIdentifier(t *testing.T) {
 func TestPublishToPubsub(t *testing.T) {
 	ctx := context.Background()
 	projectID := serverutils.MustGetEnvVar(base.GoogleCloudProjectIDEnvVarName)
+
 	pubsubClient, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		t.Errorf("can't initialize pubsub client: %v", err)
 		return
 	}
+
 	environment := "CI"
 	serviceName := "test"
 	version := "v1"
@@ -577,6 +602,7 @@ func TestPublishToPubsub(t *testing.T) {
 			version,
 		),
 	}
+
 	err = base.EnsureTopicsExist(ctx, pubsubClient, validTopics)
 	if err != nil {
 		t.Errorf("can't create topics: %v", err)
@@ -587,11 +613,9 @@ func TestPublishToPubsub(t *testing.T) {
 		ctx          context.Context
 		pubsubClient *pubsub.Client
 		topicName    string
-		environment  string
-		serviceName  string
-		version      string
 		payload      []byte
 	}
+
 	tests := []struct {
 		name    string
 		args    args
@@ -603,9 +627,6 @@ func TestPublishToPubsub(t *testing.T) {
 				ctx:          ctx,
 				pubsubClient: pubsubClient,
 				topicName:    ksuid.New().String(),
-				environment:  environment,
-				serviceName:  serviceName,
-				version:      version,
 				payload:      []byte("some payload"),
 			},
 			wantErr: true,
@@ -616,23 +637,18 @@ func TestPublishToPubsub(t *testing.T) {
 				ctx:          ctx,
 				pubsubClient: pubsubClient,
 				topicName:    validTopic,
-				environment:  environment,
-				serviceName:  serviceName,
-				version:      version,
 				payload:      []byte("some payload"),
 			},
 			wantErr: false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := base.PublishToPubsub(
 				tt.args.ctx,
 				tt.args.pubsubClient,
 				tt.args.topicName,
-				tt.args.environment,
-				tt.args.serviceName,
-				tt.args.version,
 				tt.args.payload,
 			); (err != nil) != tt.wantErr {
 				t.Errorf(
@@ -660,6 +676,7 @@ func TestGetServiceAccountEmail(t *testing.T) {
 			wantErr: false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := base.GetServiceAccountEmail()
@@ -669,8 +686,10 @@ func TestGetServiceAccountEmail(t *testing.T) {
 					err,
 					tt.wantErr,
 				)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf(
 					"GetServiceAccountEmail() = %v, want %v",

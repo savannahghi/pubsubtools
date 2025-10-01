@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"cloud.google.com/go/pubsub"
-	"github.com/savannahghi/converterandformatter"
+	pubsub "cloud.google.com/go/pubsub/v2"
+	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/savannahghi/serverutils"
 	"google.golang.org/api/idtoken"
-	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // pubsub constants
@@ -30,7 +31,8 @@ const (
 	topicKey           = "topicID"
 	ackDeadlineSeconds = 60
 	maxBackoffSeconds  = 600
-	hoursInAWeek       = 24 * 7
+	minBackoffSeconds  = 1
+	secondsInAWeek     = 604800
 )
 
 // PubSubMessage is a pub-sub message payload.
@@ -39,16 +41,16 @@ const (
 //
 // The message that is POSTed looks like the example below:
 //
-// {
-//     "message": {
-//         "attributes": {
-//             "key": "value"
-//         },
-//         "data": "SGVsbG8gQ2xvdWQgUHViL1N1YiEgSGVyZSBpcyBteSBtZXNzYWdlIQ==",
-//         "messageId": "136969346945"
-//     },
-//    "subscription": "projects/myproject/subscriptions/mysubscription"
-// }
+//	{
+//	    "message": {
+//	        "attributes": {
+//	            "key": "value"
+//	        },
+//	        "data": "SGVsbG8gQ2xvdWQgUHViL1N1YiEgSGVyZSBpcyBteSBtZXNzYWdlIQ==",
+//	        "messageId": "136969346945"
+//	    },
+//	   "subscription": "projects/myproject/subscriptions/mysubscription"
+//	}
 type PubSubMessage struct {
 	MessageID  string            `json:"messageId"`
 	Data       []byte            `json:"data"`
@@ -67,7 +69,7 @@ type PubSubPayload struct {
 // It's use will simplify & shorten the handler funcs that process Cloud Pubsub
 // push notifications.
 func VerifyPubSubJWTAndDecodePayload(
-	w http.ResponseWriter,
+	_ http.ResponseWriter,
 	r *http.Request,
 ) (*PubSubPayload, error) {
 	authHeader := r.Header.Get(authHeaderName)
@@ -76,18 +78,20 @@ func VerifyPubSubJWTAndDecodePayload(
 	}
 
 	token := strings.Split(authHeader, " ")[1]
-	payload, err := idtoken.Validate(
-		r.Context(), token, Aud)
+
+	payload, err := idtoken.Validate(r.Context(), token, Aud)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
+
 	if payload.Issuer != googleIss && payload.Issuer != googleAccountsIss {
 		return nil, fmt.Errorf("%s is not a valid issuer", payload.Issuer)
 	}
 
 	// decode the message
 	var m PubSubPayload
-	body, err := ioutil.ReadAll(r.Body)
+
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("can't read request body: %w", err)
 	}
@@ -109,12 +113,15 @@ func GetPubSubTopic(m *PubSubPayload) (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("nil pub sub payload")
 	}
+
 	attrs := m.Message.Attributes
 	topicID, prs := m.Message.Attributes[topicKey]
+
 	if !prs {
 		return "", fmt.Errorf(
 			"no `%s` key in message attributes %#v", topicKey, attrs)
 	}
+
 	return topicID, nil
 }
 
@@ -129,27 +136,31 @@ func EnsureTopicsExist(
 		return fmt.Errorf("nil pubsub client")
 	}
 
-	// get a list of configured topic IDs from the project so that we don't recreate
-	configuredTopics := []string{}
-	it := pubsubClient.Topics(ctx)
-	for {
-		topic, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf(
-				"error while iterating through pubsub topics: %w", err)
-		}
-		configuredTopics = append(configuredTopics, topic.ID())
-	}
-
-	// ensure that all our desired topics are all created
+	// ensure topics in the given list exist or create missing ones
 	for _, topicID := range topicIDs {
-		if !converterandformatter.StringSliceContains(configuredTopics, topicID) {
-			_, err := pubsubClient.CreateTopic(ctx, topicID)
-			if err != nil {
-				return fmt.Errorf("can't create topic %s: %w", topicID, err)
+		topicName := fullyQualifiedName(pubsubClient.Project(), "topics", topicID)
+
+		_, err := pubsubClient.TopicAdminClient.GetTopic(
+			ctx,
+			&pubsubpb.GetTopicRequest{
+				Topic: topicName,
+			},
+		)
+		if err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+				_, err := pubsubClient.TopicAdminClient.CreateTopic(
+					ctx,
+					&pubsubpb.Topic{
+						Name: topicName,
+					},
+				)
+				if err != nil {
+					if st, ok := status.FromError(err); ok && st.Code() != codes.AlreadyExists {
+						return fmt.Errorf("could not create topic %s: %w", topicID, err)
+					}
+				}
+			} else {
+				return fmt.Errorf("could not check if topic %s exists: %w", topicID, err)
 			}
 		}
 	}
@@ -170,14 +181,21 @@ func EnsureSubscriptionsExist(
 	}
 
 	for topicID, subscriptionID := range topicSubscriptionMap {
-		topic := pubsubClient.Topic(topicID)
-		topicExists, err := topic.Exists(ctx)
-		if err != nil {
-			return fmt.Errorf("error when checking if topic %s exists: %w", topicID, err)
-		}
+		topicName := fullyQualifiedName(pubsubClient.Project(), "topics", topicID)
+		subName := fullyQualifiedName(pubsubClient.Project(), "subscriptions", subscriptionID)
 
-		if !topicExists {
-			return fmt.Errorf("no topic with ID %s exists", topicID)
+		_, err := pubsubClient.TopicAdminClient.GetTopic(
+			ctx,
+			&pubsubpb.GetTopicRequest{
+				Topic: topicName,
+			},
+		)
+		if err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+				return fmt.Errorf("no topic with ID %s exists", topicID)
+			}
+
+			return fmt.Errorf("could not check if topic %s exists: %w", topicID, err)
 		}
 
 		subscriptionConfig, err := GetPushSubscriptionConfig(
@@ -195,18 +213,17 @@ func EnsureSubscriptionsExist(
 			return fmt.Errorf("nil subscription config")
 		}
 
-		subscriptionExists, err := pubsubClient.Subscription(subscriptionID).Exists(ctx)
-		if err != nil {
-			return fmt.Errorf("error when checking if a subscription exists: %w", err)
+		subscriptionConfig.Name = subName
+
+		_, err = pubsubClient.SubscriptionAdminClient.CreateSubscription(ctx, subscriptionConfig)
+		if status.Code(err) == codes.AlreadyExists {
+			continue
+		} else if err != nil {
+			log.Printf("Detailed error:\n%#v\n", err)
+			return fmt.Errorf("can't create subscription %s: %w", subName, err)
 		}
-		if !subscriptionExists {
-			sub, err := pubsubClient.CreateSubscription(ctx, subscriptionID, *subscriptionConfig)
-			if err != nil {
-				log.Printf("Detailed error:\n%#v\n", err)
-				return fmt.Errorf("can't create subscription %s: %w", topicID, err)
-			}
-			log.Printf("created subscription %#v with config %#v", sub, *subscriptionConfig)
-		}
+
+		log.Printf("created subscription %#v with config %#v", subName, subscriptionConfig)
 	}
 
 	return nil
@@ -219,19 +236,25 @@ func GetPushSubscriptionConfig(
 	pubsubClient *pubsub.Client,
 	topicID string,
 	callbackURL string,
-) (*pubsub.SubscriptionConfig, error) {
+) (*pubsubpb.Subscription, error) {
 	if pubsubClient == nil {
 		return nil, fmt.Errorf("nil pubsub client")
 	}
 
-	topic := pubsubClient.Topic(topicID)
-	topicExists, err := topic.Exists(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error when checking if topic %s exists: %w", topicID, err)
-	}
+	topicName := fullyQualifiedName(pubsubClient.Project(), "topics", topicID)
 
-	if !topicExists {
-		return nil, fmt.Errorf("no topic with ID %s exists", topicID)
+	_, err := pubsubClient.TopicAdminClient.GetTopic(
+		ctx,
+		&pubsubpb.GetTopicRequest{
+			Topic: topicName,
+		},
+	)
+	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+			return nil, fmt.Errorf("no topic with ID %s exists", topicID)
+		}
+
+		return nil, fmt.Errorf("could not check if topic %s exists: %w", topicID, err)
 	}
 
 	serviceAccountEmail, err := GetServiceAccountEmail()
@@ -248,33 +271,44 @@ func GetPushSubscriptionConfig(
 	// Run deployment, this authentication is automatic (done by Google). If we
 	// move this deployment to another environment, we have to do our own
 	// verification in the HTTP handler.
-	return &pubsub.SubscriptionConfig{
-		Topic: topic,
-		PushConfig: pubsub.PushConfig{
-			Endpoint: callbackURL,
-			AuthenticationMethod: &pubsub.OIDCToken{
-				Audience:            Aud,
-				ServiceAccountEmail: serviceAccountEmail,
+	subConfig := &pubsubpb.Subscription{
+		Topic: topicName,
+		PushConfig: &pubsubpb.PushConfig{
+			PushEndpoint: callbackURL,
+			AuthenticationMethod: &pubsubpb.PushConfig_OidcToken_{
+				OidcToken: &pubsubpb.PushConfig_OidcToken{
+					ServiceAccountEmail: serviceAccountEmail,
+					Audience:            Aud,
+				},
 			},
 		},
-		AckDeadline:         ackDeadlineSeconds * time.Second,
+		AckDeadlineSeconds:  ackDeadlineSeconds,
 		RetainAckedMessages: true,
-		RetentionDuration:   time.Hour * hoursInAWeek,
-		ExpirationPolicy:    time.Duration(0), // never expire
-		RetryPolicy: &pubsub.RetryPolicy{
-			MinimumBackoff: time.Second,
-			MaximumBackoff: time.Second * maxBackoffSeconds,
+		MessageRetentionDuration: &durationpb.Duration{
+			Seconds: secondsInAWeek,
 		},
-	}, nil
+		RetryPolicy: &pubsubpb.RetryPolicy{
+			MinimumBackoff: &durationpb.Duration{
+				Seconds: minBackoffSeconds,
+			},
+			MaximumBackoff: &durationpb.Duration{
+				Seconds: maxBackoffSeconds,
+			},
+		},
+	}
+
+	return subConfig, nil
 }
 
 // SubscriptionIDs returns a map of topic IDs to subscription IDs
 func SubscriptionIDs(topicIDs []string) map[string]string {
 	output := map[string]string{}
+
 	for _, topicID := range topicIDs {
 		subscriptionID := topicID + "-default-subscription"
 		output[topicID] = subscriptionID
 	}
+
 	return output
 }
 
@@ -282,15 +316,14 @@ func SubscriptionIDs(topicIDs []string) map[string]string {
 // to topicIDs
 func ReverseSubscriptionIDs(
 	topicIDs []string,
-	environment string,
-	serviceName string,
-	version string,
 ) map[string]string {
 	output := map[string]string{}
+
 	for _, topicID := range topicIDs {
 		subscriptionID := topicID + "-default-subscription"
 		output[subscriptionID] = topicID
 	}
+
 	return output
 }
 
@@ -317,9 +350,6 @@ func PublishToPubsub(
 	ctx context.Context,
 	pubsubClient *pubsub.Client,
 	topicID string,
-	environment string,
-	serviceName string,
-	version string,
 	payload []byte,
 ) error {
 	if pubsubClient == nil {
@@ -330,16 +360,25 @@ func PublishToPubsub(
 		return fmt.Errorf("nil payload")
 	}
 
-	t := pubsubClient.Topic(topicID)
-	topicExists, err := t.Exists(ctx)
+	topicName := fullyQualifiedName(pubsubClient.Project(), "topics", topicID)
+
+	_, err := pubsubClient.TopicAdminClient.GetTopic(
+		ctx,
+		&pubsubpb.GetTopicRequest{
+			Topic: topicName,
+		},
+	)
 	if err != nil {
-		return fmt.Errorf("error when checking if topic %s exists: %w", topicID, err)
-	}
-	if !topicExists {
-		return fmt.Errorf("topic %s is not registered, can't publish to it", topicID)
+		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+			return fmt.Errorf("no topic with ID %s exists, can't publish to it", topicID)
+		}
+
+		return fmt.Errorf("could not check if topic %s exists: %w", topicID, err)
 	}
 
-	result := t.Publish(ctx, &pubsub.Message{
+	pub := pubsubClient.Publisher(topicName)
+
+	result := pub.Publish(ctx, &pubsub.Message{
 		Data: payload,
 		Attributes: map[string]string{
 			"topicID": topicID,
@@ -352,7 +391,8 @@ func PublishToPubsub(
 	if err != nil {
 		return fmt.Errorf("unable to publish message: %w", err)
 	}
-	t.Stop() // clear the queue and stop the publishing goroutines
+
+	pub.Stop() // clear the queue and stop the publishing goroutines
 	log.Printf(
 		"published to %s (%s), got back message ID %s", topicID, topicID, msgID)
 
@@ -376,6 +416,11 @@ func GetServiceAccountEmail() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("can't convert project number to int: %w", err)
 	}
+
 	return fmt.Sprintf(
 		"%d-compute@developer.gserviceaccount.com", projectNumberInt), nil
+}
+
+func fullyQualifiedName(projectID, resourceType, resource string) string {
+	return fmt.Sprintf("projects/%s/%s/%s", projectID, resourceType, resource)
 }

@@ -6,10 +6,10 @@ env:
   DOCKER_BUILDKIT: 1 # Enable Buildkit and let compose use it to speed up image building
   COMPOSE_DOCKER_CLI_BUILD: 1
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  SENTRY_DSN:  ${{ secrets.SENTRY_DSN }}
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
   PORT: ${{ secrets.PORT }}
   DEBUG: ${{ secrets.DEBUG }}
-  IS_RUNNING_TESTS:  ${{ secrets.IS_RUNNING_TESTS }}
+  IS_RUNNING_TESTS: ${{ secrets.IS_RUNNING_TESTS }}
   GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
   GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
   FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
@@ -18,50 +18,55 @@ env:
   GOOGLE_PROJECT_NUMBER: ${{ secrets.GOOGLE_PROJECT_NUMBER }}
   ROOT_COLLECTION_SUFFIX: ${{ secrets.ROOT_COLLECTION_SUFFIX }}
   ENVIRONMENT: ${{ secrets.ENVIRONMENT }}
-  
+
 jobs:
-  lint_and_test:
+  golangci:
     strategy:
       matrix:
-        go-version: [1.16.x]
+        go-version: [1.23.x]
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+      - uses: actions/checkout@v3
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.2.0
+  lint_and_test:
+    needs: [golangci]
+    strategy:
+      matrix:
+        go-version: [1.23.x]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: actions/checkout@v2
-      - uses: google-github-actions/setup-gcloud@master
+      - uses: actions/checkout@v4
+      - uses: "google-github-actions/auth@v0"
         with:
-            project_id: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
-            service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
-            export_default_credentials: true
+          credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+          project_id: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go-version }}
 
       - name: Install Go dependencies
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.37.1
-          go get -u github.com/kisielk/errcheck
-          go get -u golang.org/x/lint/golint
-          go get -u honnef.co/go/tools/cmd/staticcheck
-          go get -u github.com/axw/gocov/gocov
-          go get -u github.com/securego/gosec/cmd/gosec
-          go get -u github.com/ory/go-acc
-          go get -u github.com/client9/misspell/cmd/misspell
-          go get -u github.com/gordonklaus/ineffassign
-          go get github.com/fzipp/gocyclo
-          go get github.com/stretchr/testify/assert@v1.7.0
+          curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.21.4
+          go mod download
+          go get github.com/axw/gocov/gocov
           go get github.com/ory/go-acc
+          go install github.com/ory/go-acc
+          go install github.com/axw/gocov/gocov
+          go get github.com/savannahghi/firebasetools@v0.0.19
 
       - name: Run lint and test
         run: |
-          staticcheck ./...
-          go fmt $(go list ./... | grep -v /vendor/)
-          go vet $(go list ./... | grep -v /vendor/)
-          golint -set_exit_status $(go list ./... | grep -v /vendor/)
-          errcheck -ignore 'os:.*,' $(go list ./... | grep -v /vendor/)
-          misspell -error .
           gosec -exclude=G304,G101 ./...
           go-acc -o coverage.txt --ignore generated,cmd  ./... -- -timeout 60m
           grep -v "generated.go" coverage.txt > coverage.out
@@ -69,11 +74,10 @@ jobs:
           gocov convert coverage.out > coverage.json
           gocov report coverage.json > coverage_report.txt
           tail coverage_report.txt
-        
+
       - name: Install goveralls
-        env:
-          GO111MODULE: off
-        run: go get github.com/mattn/goveralls
+        run: GO111MODULE=on go install github.com/mattn/goveralls@latest
+
       - name: Send coverage
         env:
           COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
