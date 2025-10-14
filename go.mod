@@ -7,7 +7,7 @@ toolchain go1.24.2
 require (
 	cloud.google.com/go/pubsub/v2 v2.0.0
 	github.com/rs/xid v1.3.0
-	github.com/savannahghi/serverutils v0.1.1
+	github.com/savannahghi/serverutils v1.0.0
 	github.com/segmentio/ksuid v1.0.3
 	google.golang.org/api v0.249.0
 	google.golang.org/grpc v1.75.1
